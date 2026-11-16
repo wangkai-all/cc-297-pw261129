@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strata — versioned warehouse console</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230e1013'/%3E%3Cpath d='M7 11l9-5 9 5-9 5-9-5zm0 5l9 5 9-5M7 21l9 5 9-5' fill='none' stroke='%232dd4bf' stroke-width='2' stroke-linejoin='round'/%3E%3C/svg%3E">
+</head>
+<body>
+<a class="skip" href="#main">Skip to workspace</a>
+
+<header class="topbar">
+  <div class="brand">
+    <svg class="mark" width="26" height="26" viewBox="0 0 32 32" aria-hidden="true">
+      <path d="M6 10.5 16 5l10 5.5-10 5.5-10-5.5Zm0 6L16 22l10-5.5M6 22.5 16 28l10-5.5"
+            fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+    </svg>
+    <div>
+      <div class="wordmark">Strata</div>
+      <div class="tagline">versioned warehouse console</div>
+    </div>
+  </div>
+
+  <div class="topmeta">
+    <div class="meta-item">
+      <span class="meta-label">published</span>
+      <span id="pub-gen" class="meta-value mono">gen —</span>
+    </div>
+    <div class="meta-item">
+      <span class="meta-label">watermark</span>
+      <span id="pub-wm" class="meta-value mono">—</span>
+    </div>
+    <div class="meta-item">
+      <span class="meta-label">tables</span>
+      <span id="pub-tables" class="meta-value mono">—</span>
+    </div>
+    <div class="meta-item">
+      <span class="meta-label">sources</span>
+      <span id="pub-sources" class="meta-value mono">—</span>
+    </div>
+    <div id="health" class="health" title="API reachability">
+      <span class="dot"></span><span id="health-text">connecting</span>
+    </div>
+    <button id="refresh" class="btn ghost sm" type="button" title="Refresh now">Refresh</button>
+  </div>
+</header>
+
+<main id="main" class="shell">
+  <aside class="rail" aria-label="Workspace navigation">
+    <section class="rail-block">
+      <div class="rail-head">
+        <h2>Drafts</h2>
+        <button id="new-draft" class="btn ghost xs" type="button">+ New</button>
+      </div>
+      <div id="draft-list" class="rail-list"></div>
+    </section>
+
+    <section class="rail-block">
+      <div class="rail-head">
+        <h2>Sources</h2>
+        <span class="rail-note" id="source-total"></span>
+      </div>
+      <div id="source-list" class="rail-list"></div>
+      <div class="increment-box">
+        <label for="inc-n">append paid orders</label>
+        <div class="inline">
+          <input id="inc-n" type="number" min="1" max="500" value="5" inputmode="numeric">
+          <button id="inc-add" class="btn sm" type="button">Append</button>
+        </div>
+        <button id="reconcile" class="btn ghost sm wide" type="button"
+                title="Build a generation from the current models and all new source rows">
+          Reconcile sources
+        </button>
+      </div>
+    </section>
+
+    <section class="rail-block grow">
+      <div class="rail-head">
+        <h2>Builds</h2>
+        <span class="rail-note" id="build-note"></span>
+      </div>
+      <div id="build-list" class="rail-list"></div>
+    </section>
+
+    <section class="rail-block">
+      <div class="rail-head"><h2>Generations</h2></div>
+      <div id="gen-list" class="rail-list compact"></div>
+    </section>
+  </aside>
+
+  <section class="workspace">
+    <div class="graph-panel card">
+      <div class="card-head">
+        <div>
+          <h2>Dependency graph</h2>
+          <p class="sub" id="graph-sub">Tables ordered by distance from sources.</p>
+        </div>
+        <div class="legend">
+          <span class="legend-item"><i class="swatch kind-create"></i>full</span>
+          <span class="legend-item"><i class="swatch kind-insert"></i>incremental</span>
+          <span class="legend-item"><i class="swatch swatch-affected"></i>affected</span>
+        </div>
+      </div>
+      <div id="graph" class="graph" role="list"></div>
+      <div id="graph-empty" class="empty" hidden>
+        <p>No models yet.</p>
+        <button id="seed" class="btn primary" type="button">Load demo warehouse</button>
+        <p class="hint">Creates <span class="mono">orders</span>,
+          <span class="mono">customers</span> and <span class="mono">clicks</span> sources
+          plus eight models in a draft edit.</p>
+      </div>
+    </div>
+
+    <nav class="tabs" role="tablist" aria-label="Workspace views">
+      <button class="tab" data-tab="editor" role="tab">Model &amp; impact</button>
+      <button class="tab" data-tab="preview" role="tab">Preview</button>
+      <button class="tab" data-tab="compare" role="tab">Compare &amp; rollback</button>
+      <button class="tab" data-tab="builds" role="tab">Build detail</button>
+    </nav>
+
+    <div id="tab-editor" class="tabpanel" role="tabpanel">
+      <div class="split">
+        <div class="card editor-card">
+          <div class="card-head">
+            <div>
+              <h2 id="editor-title">Select a table</h2>
+              <p class="sub" id="editor-sub">Pick a node above to inspect its model.</p>
+            </div>
+            <div class="editor-actions">
+              <span id="editor-version" class="pill mono" hidden></span>
+            </div>
+          </div>
+          <div id="readonly-banner" class="banner" hidden>
+            This generation is published and immutable. Create a draft to edit models.
+          </div>
+          <div class="editor-form">
+            <div class="field-row">
+              <label class="field">
+                <span>model</span>
+                <input id="model-name" class="mono" readonly>
+              </label>
+              <label class="field narrow">
+                <span>kind</span>
+                <select id="model-kind">
+                  <option value="create">CREATE (full)</option>
+                  <option value="insert">INSERT (incremental)</option>
+                </select>
+              </label>
+            </div>
+            <label class="field">
+              <span>SQL <span class="field-hint">— limited subset; unsupported syntax is rejected</span></span>
+              <textarea id="model-sql" class="code" spellcheck="false" rows="12"
+                        placeholder="CREATE TABLE my_table AS
+SELECT order_id AS order_id, amount AS amount
+FROM orders
+WHERE status = 'paid'"></textarea>
+            </label>
+            <div class="editor-buttons">
+              <button id="save-model" class="btn primary" type="button">Save to draft</button>
+              <button id="analyze" class="btn" type="button">Analyze impact</button>
+              <button id="new-table" class="btn ghost" type="button">Add new table</button>
+              <span id="editor-status" class="status" role="status"></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="card impact-card">
+          <div class="card-head">
+            <div>
+              <h2>Field impact</h2>
+              <p class="sub">Output column → source column, computed from the parse tree.</p>
+            </div>
+            <button id="analyze-refresh" class="btn ghost xs" type="button">Run</button>
+          </div>
+          <div id="impact" class="impact">
+            <p class="muted">Run “Analyze impact” to see lineage, added / removed
+              columns and every downstream consumer.</p>
+          </div>
+          <div class="divider"></div>
+          <div class="card-head tight">
+            <div>
+              <h2>Published sample</h2>
+              <p class="sub" id="sample-sub">Rows read from the immutable table file.</p>
+            </div>
+            <button id="sample-refresh" class="btn ghost xs" type="button">Read</button>
+          </div>
+          <div id="sample-rows" class="table-wrap small"></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-preview" class="tabpanel" role="tabpanel" hidden>
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h2>Preview build</h2>
+            <p class="sub">A real build in a worker process. Files are written and
+              every model is bound against them, but no pointer is moved.</p>
+          </div>
+          <div class="editor-actions">
+            <button id="run-preview" class="btn primary" type="button">Run preview</button>
+          </div>
+        </div>
+        <div id="preview-body" class="preview-body">
+          <p class="muted">No preview yet. Choose a draft and run one.</p>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-compare" class="tabpanel" role="tabpanel" hidden>
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h2>Compare generations</h2>
+            <p class="sub">Row-level deltas are executed against both immutable files.</p>
+          </div>
+        </div>
+        <div class="compare-controls">
+          <label class="field">
+            <span>generation A</span>
+            <select id="cmp-a"></select>
+          </label>
+          <label class="field">
+            <span>generation B</span>
+            <select id="cmp-b"></select>
+          </label>
+          <button id="run-compare" class="btn primary" type="button">Compare</button>
+          <button id="rollback-a" class="btn danger-ghost" type="button"
+                  title="Publish a new generation that points at generation A's files">
+            Roll back to A
+          </button>
+        </div>
+        <div id="compare-body" class="compare-body"></div>
+      </div>
+    </div>
+
+    <div id="tab-builds" class="tabpanel" role="tabpanel" hidden>
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h2 id="build-title">Build detail</h2>
+            <p class="sub" id="build-sub">Select a build from the rail.</p>
+          </div>
+        </div>
+        <div id="build-body"><p class="muted">No build selected.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <aside class="control" aria-label="Build controls">
+    <section class="card sticky">
+      <div class="card-head">
+        <div>
+          <h2>Publish</h2>
+          <p class="sub" id="publish-sub">Plan the next generation.</p>
+        </div>
+        <span id="draft-state" class="pill">—</span>
+      </div>
+
+      <div class="mode-picker" role="radiogroup" aria-label="Publish mode">
+        <label class="mode">
+          <input type="radio" name="mode" value="grouped" checked>
+          <span>
+            <strong>Grouped</strong>
+            <small>One atomic switch per dependency family; proven-identical
+              rebuilds skip their downstream.</small>
+          </span>
+        </label>
+        <label class="mode">
+          <input type="radio" name="mode" value="cutover">
+          <span>
+            <strong>Cutover</strong>
+            <small>One switch for the whole affected closure; readers wait for
+              the longest chain.</small>
+          </span>
+        </label>
+      </div>
+
+      <div id="plan-summary" class="plan-summary">
+        <p class="muted">Choose a draft to compute a plan.</p>
+      </div>
+
+      <div class="publish-actions">
+        <button id="publish" class="btn primary wide" type="button">Publish</button>
+        <div class="inline">
+          <button id="rebase" class="btn ghost sm grow" type="button" hidden>Rebase draft</button>
+          <button id="discard" class="btn danger-ghost sm" type="button" hidden>Discard</button>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+      <div class="card-head tight">
+        <div>
+          <h2>Active build</h2>
+          <p class="sub" id="active-sub">Nothing running.</p>
+        </div>
+      </div>
+      <div id="active-build" class="active-build">
+        <p class="muted">Submit a preview or publish to watch it execute.</p>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <div>
+          <h2>Events</h2>
+          <p class="sub">Metadata transactions, newest first.</p>
+        </div>
+      </div>
+      <div id="event-list" class="events"></div>
+    </section>
+  </aside>
+</main>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
